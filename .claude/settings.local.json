@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /c/Users/pkgil/code/markdown-brain-spawn log --oneline -10)",
+      "Bash(pip install:*)",
+      "Bash(python -m pytest tests/ -m \"not tesseract\" -v)"
+    ]
+  }
+}

@@ -1,0 +1,76 @@
+# markdown-brain-spawn configuration
+# Copy this file to config.yaml and fill in your values.
+#
+# API key tip: use $ENV_VAR_NAME to read from an environment variable,
+# or paste the key literal (but don't commit config.yaml to git).
+#
+# Path tip (Windows): Google Drive Desktop typically mounts at
+#   C:/Users/<you>/Google Drive/My Drive
+# or as a drive letter like G:/My Drive — check File Explorer.
+# Forward slashes work fine on Windows inside this file.
+
+watch:
+  # Folder to monitor for incoming files (non-recursive, top-level only)
+  inbox_path: "/Users/pkgil/Google Drive"
+
+  # Destination Obsidian vault root
+  vault_path: "/Users/pkgil/Google Drive/pauls_second_brain"
+
+  # File extensions to process (case-insensitive)
+  extensions:
+    - ".pdf"
+    - ".png"
+    - ".jpg"
+    - ".jpeg"
+    - ".tiff"
+    - ".bmp"
+
+ai:
+  # Which AI provider to use: "claude" or "gemini"
+  provider: "claude"
+
+  # API key: literal string or $ENV_VAR_NAME
+  api_key: "$ANTHROPIC_API_KEY"
+
+  # Model identifier
+  # Claude: claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5
+  # Gemini: gemini-2.0-flash, gemini-2.0-pro
+  model: "claude-haiku-4-5"
+
+  # Max tokens in AI response (JSON is small; 512 is ample)
+  max_tokens: 512
+
+  # Temperature: 0.0 = deterministic, 1.0 = creative
+  # Low values work best for structured JSON extraction
+  temperature: 0.2
+
+scheduler:
+  # "realtime": process file immediately when detected
+  # "batch":    accumulate files, process at scheduled time
+  mode: "realtime"
+
+  # Only used when mode is "batch"
+  batch_schedule: "daily"    # "daily" or "weekly"
+  batch_time: "02:00"        # HH:MM in 24-hour local time
+  batch_day: "sunday"        # day of week for weekly batches
+
+ocr:
+  # Path to Tesseract binary — set this on Windows if tesseract is not in PATH.
+  # Leave null to auto-detect from PATH.
+  # Example: "C:/Program Files/Tesseract-OCR/tesseract.exe"
+  tesseract_cmd: null
+
+  # Minimum characters from a PDF page before falling back to Tesseract OCR
+  min_embedded_text_chars: 100
+
+  # DPI for rendering PDF pages to images (higher = slower but more accurate)
+  pdf_render_dpi: 300
+
+  # Tesseract language(s). Use "+" to combine, e.g. "eng+fra"
+  language: "eng"
+
+logging:
+  level: "INFO"             # DEBUG, INFO, WARNING, ERROR
+  log_file: "logs/brain.log"
+  max_log_mb: 10            # Rotate log file after this many MB
+  backup_count: 5           # Number of rotated files to keep
