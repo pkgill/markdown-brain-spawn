@@ -9,8 +9,8 @@ from pathlib import Path
 
 from brain.ai.base import AIProvider, AIError
 from brain.config import AppConfig
-from brain.ocr import extract_text, OCRError, configure_tesseract
-from brain.organizer import organize_file, move_to_failed, OrganizerError
+from brain.ocr import extract_text, OCRError, UnsupportedFormatError, configure_tesseract
+from brain.organizer import organize_file, move_to_failed, move_to_unsupported, OrganizerError
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,10 @@ class Pipeline:
                 "OCR complete — method: %s, chars: %d",
                 ocr_result.method, len(ocr_result.text),
             )
+        except UnsupportedFormatError as exc:
+            logger.info("Unsupported format for %s: moving to 'Unsupported files'", file_path.name)
+            self._handle_unsupported(file_path)
+            return False
         except OCRError as exc:
             logger.error("OCR failed for %s: %s", file_path.name, exc)
             self._fail_file(file_path, str(exc))
@@ -126,6 +130,12 @@ class Pipeline:
             move_to_failed(file_path, self._config.watch.vault_path, reason)
         else:
             logger.info("[DRY RUN] Would move failed file: %s", file_path)
+
+    def _handle_unsupported(self, file_path: Path) -> None:
+        if not self._dry_run:
+            move_to_unsupported(file_path, self._config.watch.vault_path)
+        else:
+            logger.info("[DRY RUN] Would move unsupported file: %s", file_path)
 
 
 # ---------------------------------------------------------------------------

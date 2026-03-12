@@ -210,20 +210,29 @@ def move_to_failed(source_path: Path, vault_path: Path, reason: str) -> None:
     Also writes a sidecar .error.txt with the failure reason.
     Silently logs if even this fails (avoids masking the original error).
     """
-    failed_dir = vault_path / "_failed"
+    _move_with_error(source_path, vault_path / "_failed", reason)
+
+
+def move_to_unsupported(source_path: Path, vault_path: Path) -> None:
+    """Move a file that is not supported by the pipeline to the vault/Unsupported files/ directory."""
+    _move_with_error(source_path, vault_path / "Unsupported files", "Unsupported file format.")
+
+
+def _move_with_error(source_path: Path, dest_dir: Path, reason: str) -> None:
+    """Helper to move a file to a destination directory and write an error sidecar."""
     try:
-        failed_dir.mkdir(parents=True, exist_ok=True)
-        dest = _unique_path(failed_dir / source_path.name)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = _unique_path(dest_dir / source_path.name)
         shutil.move(str(source_path), str(dest))
 
         error_file = dest.with_suffix(dest.suffix + ".error.txt")
         error_file.write_text(
-            f"Failed at: {datetime.now().isoformat()}\n\nReason:\n{reason}\n",
+            f"Reason: {reason}\nTimestamp: {datetime.now().isoformat()}\n",
             encoding="utf-8",
         )
-        logger.info("Moved failed file to: %s", dest)
+        logger.info("Moved file to: %s", dest)
     except Exception as exc:
-        logger.error("Could not move failed file %s to _failed/: %s", source_path, exc)
+        logger.error("Could not move file %s to %s: %s", source_path, dest_dir, exc)
 
 
 # ---------------------------------------------------------------------------

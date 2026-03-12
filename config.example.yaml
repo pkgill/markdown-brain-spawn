@@ -26,6 +26,12 @@ watch:
     - ".bmp"
     - ".docx"
     - ".doc"
+    - ".pptx"
+    - ".ppt"
+    - ".txt"
+    - ".svg"
+    - ".html"
+    - ".htm"
 
 ai:
   # Which AI provider to use: "claude" or "gemini"

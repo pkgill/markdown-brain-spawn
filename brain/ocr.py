@@ -5,8 +5,11 @@ Strategy:
           PyMuPDF page rendering + Tesseract per page.
   Image → preprocess with Pillow, then Tesseract.
   DOCX  → python-docx (pure Python; paragraphs + tables).
-  DOC   → LibreOffice --headless conversion to text (requires LibreOffice
-          or antiword to be installed on the host system).
+  PPTX  → python-pptx (pure Python).
+  HTML  → BeautifulSoup4 (extracts visible text).
+  TXT/SVG → Direct file read (UTF-8).
+  DOC/PPT → LibreOffice --headless conversion to text (requires LibreOffice
+          or antiword/catppt to be installed on the host system).
 """
 
 from __future__ import annotations
@@ -20,7 +23,15 @@ logger = logging.getLogger(__name__)
 SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".gif", ".webp", ".heic", ".heif"}
 SUPPORTED_PDF_EXTENSIONS = {".pdf"}
 SUPPORTED_WORD_EXTENSIONS = {".doc", ".docx"}
-SUPPORTED_EXTENSIONS = SUPPORTED_IMAGE_EXTENSIONS | SUPPORTED_PDF_EXTENSIONS | SUPPORTED_WORD_EXTENSIONS
+SUPPORTED_POWERPOINT_EXTENSIONS = {".ppt", ".pptx"}
+SUPPORTED_TEXT_EXTENSIONS = {".txt", ".svg", ".html", ".htm"}
+SUPPORTED_EXTENSIONS = (
+    SUPPORTED_IMAGE_EXTENSIONS | 
+    SUPPORTED_PDF_EXTENSIONS | 
+    SUPPORTED_WORD_EXTENSIONS | 
+    SUPPORTED_POWERPOINT_EXTENSIONS | 
+    SUPPORTED_TEXT_EXTENSIONS
+)
 
 
 # ---------------------------------------------------------------------------
@@ -58,7 +69,7 @@ def extract_text(path: Path, min_embedded_chars: int = 100,
     suffix = path.suffix.lower()
 
     if suffix not in SUPPORTED_EXTENSIONS:
-        raise OCRError(
+        raise UnsupportedFormatError(
             f"Unsupported file type: {suffix!r}. "
             f"Supported: {sorted(SUPPORTED_EXTENSIONS)}"
         )
@@ -70,6 +81,10 @@ def extract_text(path: Path, min_embedded_chars: int = 100,
         return _extract_pdf(path, min_embedded_chars, pdf_render_dpi, language)
     if suffix in SUPPORTED_WORD_EXTENSIONS:
         return _extract_word(path)
+    if suffix in SUPPORTED_POWERPOINT_EXTENSIONS:
+        return _extract_powerpoint(path)
+    if suffix in SUPPORTED_TEXT_EXTENSIONS:
+        return _extract_text_file(path)
     return _extract_image(path, language)
 
 
@@ -348,8 +363,141 @@ def configure_tesseract(cmd: str | None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# PowerPoint extraction
+# ---------------------------------------------------------------------------
+
+def _extract_powerpoint(path: Path) -> OCRResult:
+    """Extract text from .pptx or legacy .ppt files."""
+    suffix = path.suffix.lower()
+    if suffix == ".pptx":
+        return _extract_pptx(path)
+    return _extract_ppt(path)
+
+
+def _extract_pptx(path: Path) -> OCRResult:
+    """Extract text from a .pptx file using python-pptx."""
+    try:
+        from pptx import Presentation
+    except ImportError as exc:
+        raise OCRError(
+            "python-pptx is required to process .pptx files.\n"
+            "Install it with: pip install python-pptx"
+        ) from exc
+
+    try:
+        prs = Presentation(str(path))
+        parts: list[str] = []
+
+        for i, slide in enumerate(prs.slides, start=1):
+            slide_parts = []
+            for shape in slide.shapes:
+                if hasattr(shape, "text") and shape.text.strip():
+                    slide_parts.append(shape.text.strip())
+            
+            if slide_parts:
+                parts.append(f"--- Slide {i} ---\n" + "\n".join(slide_parts))
+
+        full_text = "\n\n".join(parts)
+        return OCRResult(
+            text=full_text.strip(),
+            method="python-pptx",
+            page_count=len(prs.slides),
+        )
+    except Exception as exc:
+        raise OCRError(f"python-pptx failed on {path.name}: {exc}") from exc
+
+
+def _extract_ppt(path: Path) -> OCRResult:
+    """Extract text from a legacy .ppt file using LibreOffice."""
+    import subprocess
+    import tempfile
+    import shutil
+
+    libreoffice = shutil.which("libreoffice") or shutil.which("soffice")
+    if libreoffice:
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                result = subprocess.run(
+                    [
+                        libreoffice,
+                        "--headless",
+                        "--convert-to", "txt:Text",
+                        "--outdir", tmpdir,
+                        str(path),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                if result.returncode == 0:
+                    txt_file = Path(tmpdir) / (path.stem + ".txt")
+                    if txt_file.exists():
+                        text = txt_file.read_text(encoding="utf-8", errors="replace")
+                        return OCRResult(
+                            text=text.strip(),
+                            method="libreoffice_ppt",
+                            page_count=None,
+                        )
+        except Exception as exc:
+            logger.warning("LibreOffice PPT conversion failed for %s: %s", path.name, exc)
+
+    raise OCRError(
+        f"Cannot extract text from legacy .ppt file: {path.name}\n"
+        "Install LibreOffice to process .ppt files."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Text/Web/SVG extraction
+# ---------------------------------------------------------------------------
+
+def _extract_text_file(path: Path) -> OCRResult:
+    """Extract text from .txt, .svg, or .html files."""
+    suffix = path.suffix.lower()
+    
+    # SVG and TXT are direct reads
+    if suffix in {".txt", ".svg"}:
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+            return OCRResult(text=content.strip(), method="direct_read")
+        except Exception as exc:
+            raise OCRError(f"Failed to read text file {path.name}: {exc}") from exc
+
+    # HTML requires BeautifulSoup to extract visible text
+    if suffix in {".html", ".htm"}:
+        try:
+            from bs4 import BeautifulSoup
+            content = path.read_text(encoding="utf-8", errors="replace")
+            soup = BeautifulSoup(content, "html.parser")
+            
+            # Remove script and style elements
+            for script_or_style in soup(["script", "style"]):
+                script_or_style.decompose()
+
+            # Get text, collapse whitespace
+            text = soup.get_text(separator="\n")
+            lines = (line.strip() for line in text.splitlines())
+            chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+            text = "\n".join(chunk for chunk in chunks if chunk)
+
+            return OCRResult(text=text.strip(), method="beautifulsoup4")
+        except ImportError:
+            # Fallback to direct read if BS4 is missing (less ideal but better than failing)
+            content = path.read_text(encoding="utf-8", errors="replace")
+            return OCRResult(text=content.strip(), method="direct_read_html_fallback")
+        except Exception as exc:
+            raise OCRError(f"Failed to parse HTML {path.name}: {exc}") from exc
+
+    raise OCRError(f"Unexpected text extension: {suffix}")
+
+
+# ---------------------------------------------------------------------------
 # Exception
 # ---------------------------------------------------------------------------
 
 class OCRError(Exception):
     """Raised when OCR extraction fails for any reason."""
+
+
+class UnsupportedFormatError(OCRError):
+    """Raised specifically when a file format is not supported by the pipeline."""

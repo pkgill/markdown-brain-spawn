@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from brain.ocr import extract_text, OCRError
+from brain.ocr import extract_text, OCRError, UnsupportedFormatError
 
 
 # ---------------------------------------------------------------------------
@@ -27,9 +27,9 @@ FIXTURES = Path(__file__).parent.parent / "fixtures"
 # ---------------------------------------------------------------------------
 
 def test_unsupported_extension_raises(tmp_path):
-    f = tmp_path / "doc.docx"
+    f = tmp_path / "data.zip"
     f.write_text("content")
-    with pytest.raises(OCRError, match="Unsupported"):
+    with pytest.raises(UnsupportedFormatError, match="Unsupported"):
         extract_text(f)
 
 

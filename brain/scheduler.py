@@ -54,19 +54,16 @@ class InboxEventHandler(FileSystemEventHandler):
             self._handle(Path(event.dest_path))
 
     def _handle(self, path: Path) -> None:
-        if path.suffix.lower() in self._extensions:
-            now = time.monotonic()
-            key = str(path)
-            with self._seen_lock:
-                last = self._seen.get(key, 0)
-                if now - last < self._DEDUP_WINDOW:
-                    logger.debug("Duplicate event suppressed: %s", path.name)
-                    return
-                self._seen[key] = now
-            logger.info("Detected: %s", path.name)
-            self._queue.put(path)
-        else:
-            logger.debug("Ignored (wrong extension): %s", path.name)
+        now = time.monotonic()
+        key = str(path)
+        with self._seen_lock:
+            last = self._seen.get(key, 0)
+            if now - last < self._DEDUP_WINDOW:
+                logger.debug("Duplicate event suppressed: %s", path.name)
+                return
+            self._seen[key] = now
+        logger.info("Detected: %s", path.name)
+        self._queue.put(path)
 
 
 # ---------------------------------------------------------------------------
