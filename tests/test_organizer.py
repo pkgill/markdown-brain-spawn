@@ -128,6 +128,18 @@ def test_organize_file_moved_inside_vault(sample_analysis, source_file, app_conf
     assert str(moved).startswith(str(app_config.watch.vault_path))
 
 
+def test_organize_file_renames_source_to_match_title(sample_analysis, source_file, app_config):
+    # source_file name is "w2_scan.pdf" (from fixture)
+    # sample_analysis title is "Tax Return 2024" (from fixture)
+    md_path, moved_source = organize_file(source_file, sample_analysis, "ocr text", app_config)
+
+    # md_path should be "tax-return-2024.md"
+    # moved_source should be "tax-return-2024.pdf"
+    assert md_path.name == "tax-return-2024.md"
+    assert moved_source.name == "tax-return-2024.pdf"
+    assert moved_source.exists()
+
+
 def test_organize_file_dry_run_does_nothing(sample_analysis, source_file, app_config):
     organize_file(source_file, sample_analysis, "ocr text", app_config, dry_run=True)
     assert source_file.exists()   # not moved

@@ -47,9 +47,24 @@ def organize_file(
     subfolder = _vault_subdir(vault, analysis.category, dry_run=dry_run)
 
     # Build destination paths
-    md_name = safe_filename(analysis.title, suffix=".md")
-    md_path = _unique_path(subfolder / md_name)
-    dest_source = _unique_path(subfolder / source_path.name)
+    # We want the source file and the markdown file to share the same base name (stem).
+    # We find a unique base name that doesn't conflict with any existing files in the vault folder.
+    base_name = safe_filename(analysis.title, suffix="")
+    source_ext = source_path.suffix
+
+    counter = 1
+    while True:
+        suffix_count = f"_{counter}" if counter > 1 else ""
+        candidate_stem = base_name + suffix_count
+        md_candidate = subfolder / (candidate_stem + ".md")
+        source_candidate = subfolder / (candidate_stem + source_ext)
+
+        # Neither the markdown file nor the source file should exist at the destination.
+        if not md_candidate.exists() and not source_candidate.exists():
+            md_path = md_candidate
+            dest_source = source_candidate
+            break
+        counter += 1
 
     if dry_run:
         logger.info("[DRY RUN] Would write:  %s", md_path)

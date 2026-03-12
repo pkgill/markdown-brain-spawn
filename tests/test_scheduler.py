@@ -77,11 +77,15 @@ def test_handler_on_moved_rejected(handler, queue, tmp_path):
 # Scheduler._flush_batch
 # ---------------------------------------------------------------------------
 
-def test_flush_batch_calls_pipeline_for_each_file(app_config):
+def test_flush_batch_calls_pipeline_for_each_file(app_config, tmp_path):
     mock_pipeline = MagicMock()
     scheduler = Scheduler(app_config, mock_pipeline)
 
-    files = [Path(f"/fake/doc{i}.pdf") for i in range(3)]
+    files = []
+    for i in range(3):
+        f = tmp_path / f"doc{i}.pdf"
+        f.write_bytes(b"fake")
+        files.append(f)
     scheduler._batch_accumulator.extend(files)
 
     scheduler._flush_batch()
@@ -91,10 +95,14 @@ def test_flush_batch_calls_pipeline_for_each_file(app_config):
     assert called_paths == set(files)
 
 
-def test_flush_batch_clears_accumulator(app_config):
+def test_flush_batch_clears_accumulator(app_config, tmp_path):
     mock_pipeline = MagicMock()
     scheduler = Scheduler(app_config, mock_pipeline)
-    scheduler._batch_accumulator.extend([Path("/fake/a.pdf"), Path("/fake/b.pdf")])
+    a = tmp_path / "a.pdf"
+    b = tmp_path / "b.pdf"
+    a.write_bytes(b"fake")
+    b.write_bytes(b"fake")
+    scheduler._batch_accumulator.extend([a, b])
 
     scheduler._flush_batch()
 

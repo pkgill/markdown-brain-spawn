@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from pathlib import Path
 from queue import Empty, Queue
 
@@ -39,6 +40,9 @@ class InboxEventHandler(FileSystemEventHandler):
         super().__init__()
         self._extensions = extensions
         self._queue = queue
+        self._seen: dict[str, float] = {}    # path → timestamp of last event
+        self._seen_lock = threading.Lock()
+        self._DEDUP_WINDOW = 5  # seconds — ignore duplicate events within this window
 
     def on_created(self, event: FileCreatedEvent) -> None:
         if not event.is_directory:
@@ -51,6 +55,14 @@ class InboxEventHandler(FileSystemEventHandler):
 
     def _handle(self, path: Path) -> None:
         if path.suffix.lower() in self._extensions:
+            now = time.monotonic()
+            key = str(path)
+            with self._seen_lock:
+                last = self._seen.get(key, 0)
+                if now - last < self._DEDUP_WINDOW:
+                    logger.debug("Duplicate event suppressed: %s", path.name)
+                    return
+                self._seen[key] = now
             logger.info("Detected: %s", path.name)
             self._queue.put(path)
         else:
@@ -154,6 +166,9 @@ class Scheduler:
     # ------------------------------------------------------------------
 
     def _process_one(self, file_path: Path) -> None:
+        if not file_path.exists():
+            logger.warning("Skipping %s — file no longer exists (already processed?).", file_path.name)
+            return
         try:
             self._pipeline.process(file_path)
         except Exception as exc:
