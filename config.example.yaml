@@ -24,6 +24,8 @@ watch:
     - ".jpeg"
     - ".tiff"
     - ".bmp"
+    - ".docx"
+    - ".doc"
 
 ai:
   # Which AI provider to use: "claude" or "gemini"

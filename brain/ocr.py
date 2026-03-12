@@ -1,9 +1,12 @@
-"""OCR module: extracts text from PDFs and images.
+"""OCR module: extracts text from PDFs, images, and Word documents.
 
 Strategy:
-  PDF  → try pdfplumber (embedded text); if sparse, fall back to
-         PyMuPDF page rendering + Tesseract per page.
+  PDF   → try pdfplumber (embedded text); if sparse, fall back to
+          PyMuPDF page rendering + Tesseract per page.
   Image → preprocess with Pillow, then Tesseract.
+  DOCX  → python-docx (pure Python; paragraphs + tables).
+  DOC   → LibreOffice --headless conversion to text (requires LibreOffice
+          or antiword to be installed on the host system).
 """
 
 from __future__ import annotations
@@ -16,7 +19,8 @@ logger = logging.getLogger(__name__)
 
 SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".gif", ".webp", ".heic", ".heif"}
 SUPPORTED_PDF_EXTENSIONS = {".pdf"}
-SUPPORTED_EXTENSIONS = SUPPORTED_IMAGE_EXTENSIONS | SUPPORTED_PDF_EXTENSIONS
+SUPPORTED_WORD_EXTENSIONS = {".doc", ".docx"}
+SUPPORTED_EXTENSIONS = SUPPORTED_IMAGE_EXTENSIONS | SUPPORTED_PDF_EXTENSIONS | SUPPORTED_WORD_EXTENSIONS
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +68,8 @@ def extract_text(path: Path, min_embedded_chars: int = 100,
 
     if suffix in SUPPORTED_PDF_EXTENSIONS:
         return _extract_pdf(path, min_embedded_chars, pdf_render_dpi, language)
+    if suffix in SUPPORTED_WORD_EXTENSIONS:
+        return _extract_word(path)
     return _extract_image(path, language)
 
 
@@ -139,6 +145,130 @@ def _extract_pdf_with_tesseract(path: Path, dpi: int, language: str) -> OCRResul
         raise
     except Exception as exc:
         raise OCRError(f"Tesseract PDF extraction failed on {path.name}: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Word document extraction
+# ---------------------------------------------------------------------------
+
+def _extract_word(path: Path) -> OCRResult:
+    """Extract text from .docx or legacy .doc files.
+
+    DOCX: uses python-docx (pure Python).
+    DOC:  tries LibreOffice --headless conversion first, then antiword.
+    """
+    suffix = path.suffix.lower()
+    if suffix == ".docx":
+        return _extract_docx(path)
+    return _extract_doc(path)
+
+
+def _extract_docx(path: Path) -> OCRResult:
+    """Extract text from a .docx file using python-docx."""
+    try:
+        import docx  # python-docx
+    except ImportError as exc:
+        raise OCRError(
+            "python-docx is required to process .docx files.\n"
+            "Install it with: pip install python-docx"
+        ) from exc
+
+    try:
+        doc = docx.Document(str(path))
+        parts: list[str] = []
+
+        # Body paragraphs
+        for para in doc.paragraphs:
+            text = para.text.strip()
+            if text:
+                parts.append(text)
+
+        # Tables (each cell on its own line, rows separated by pipe)
+        for table in doc.tables:
+            for row in table.rows:
+                row_text = " | ".join(
+                    cell.text.strip() for cell in row.cells if cell.text.strip()
+                )
+                if row_text:
+                    parts.append(row_text)
+
+        full_text = "\n".join(parts)
+        return OCRResult(
+            text=full_text.strip(),
+            method="python-docx",
+            page_count=None,
+        )
+    except OCRError:
+        raise
+    except Exception as exc:
+        raise OCRError(f"python-docx failed on {path.name}: {exc}") from exc
+
+
+def _extract_doc(path: Path) -> OCRResult:
+    """Extract text from a legacy .doc file.
+
+    Tries LibreOffice first (most feature-complete), then antiword.
+    Both must be installed as system tools; neither is a pure-Python solution.
+    """
+    import subprocess
+    import tempfile
+    import shutil
+
+    # --- Attempt 1: LibreOffice headless conversion to text ---
+    libreoffice = shutil.which("libreoffice") or shutil.which("soffice")
+    if libreoffice:
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                result = subprocess.run(
+                    [
+                        libreoffice,
+                        "--headless",
+                        "--convert-to", "txt:Text",
+                        "--outdir", tmpdir,
+                        str(path),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                if result.returncode == 0:
+                    txt_file = Path(tmpdir) / (path.stem + ".txt")
+                    if txt_file.exists():
+                        text = txt_file.read_text(encoding="utf-8", errors="replace")
+                        return OCRResult(
+                            text=text.strip(),
+                            method="libreoffice",
+                            page_count=None,
+                        )
+        except Exception as exc:
+            logger.warning("LibreOffice conversion failed for %s: %s", path.name, exc)
+
+    # --- Attempt 2: antiword ---
+    antiword = shutil.which("antiword")
+    if antiword:
+        try:
+            result = subprocess.run(
+                [antiword, str(path)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode == 0:
+                return OCRResult(
+                    text=result.stdout.strip(),
+                    method="antiword",
+                    page_count=None,
+                )
+        except Exception as exc:
+            logger.warning("antiword failed for %s: %s", path.name, exc)
+
+    raise OCRError(
+        f"Cannot extract text from legacy .doc file: {path.name}\n"
+        "Install LibreOffice (recommended) or antiword to process .doc files.\n"
+        "  Windows: https://www.libreoffice.org/download/libreoffice/\n"
+        "  macOS:   brew install libreoffice  OR  brew install antiword\n"
+        "  Ubuntu:  sudo apt-get install libreoffice  OR  sudo apt-get install antiword"
+    )
 
 
 # ---------------------------------------------------------------------------

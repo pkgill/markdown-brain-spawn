@@ -10,6 +10,9 @@ pillow-heif>=0.16.0
 pdfplumber>=0.11.0
 PyMuPDF>=1.24.0
 
+# Word document extraction (.docx)
+python-docx>=1.1.0
+
 # AI providers
 anthropic>=0.30.0
 google-genai>=1.0.0
