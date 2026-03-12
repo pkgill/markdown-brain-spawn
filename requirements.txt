@@ -4,6 +4,7 @@ watchdog>=4.0.0
 # OCR
 pytesseract>=0.3.13
 Pillow>=10.4.0
+pillow-heif>=0.16.0
 
 # PDF extraction
 pdfplumber>=0.11.0
